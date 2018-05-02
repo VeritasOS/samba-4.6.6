@@ -1,0 +1,107 @@
+Diff of fix done in samba-vxfs plugin:
+
+diff --git a/samba-4.6.6/source3/modules/lib_vxfs.c b/samba-4.6.6/source3/modules/lib_vxfs.c
+index e3d8de5..65815b5 100644
+--- a/samba-4.6.6/source3/modules/lib_vxfs.c
++++ b/samba-4.6.6/source3/modules/lib_vxfs.c
+@@ -224,11 +224,15 @@ int vxfs_setwxattr_fd(int fd)
+ 	return ret;
+ }
+ 
+-int vxfs_setwxattr_path(const char *path)
++int vxfs_setwxattr_path(const char *path, bool is_dir)
+ {
+ 	int ret, fd = -1;
+ 
+-	fd = open(path, O_WRONLY);
++	if (is_dir) {
++		fd = open(path, O_RDONLY|O_DIRECTORY);
++	} else {
++		fd = open(path, O_WRONLY);
++	}
+ 	if (fd == -1) {
+ 		DBG_DEBUG("file %s not opened, errno:%s\n",
+ 			   path, strerror(errno));
+@@ -259,11 +263,16 @@ int vxfs_clearwxattr_fd(int fd)
+ 	return ret;
+ }
+ 
+-int vxfs_clearwxattr_path(const char *path)
++int vxfs_clearwxattr_path(const char *path, bool is_dir)
+ {
+ 	int ret, fd = -1;
+ 
+-	fd = open(path, O_WRONLY);
++	if (is_dir) {
++		fd = open(path, O_RDONLY|O_DIRECTORY);
++	} else {
++		fd = open(path, O_WRONLY);
++	}
++
+ 	if (fd == -1) {
+ 		DBG_DEBUG("file %s not opened, errno:%s\n",
+ 			   path, strerror(errno));
+@@ -298,7 +307,8 @@ int vxfs_checkwxattr_path(const char *path)
+ 
+ 	int ret, fd = -1;
+ 
+-	fd = open(path, O_WRONLY);
++	fd = open(path, O_RDONLY);
++
+ 	if (fd == -1) {
+ 		DBG_DEBUG("file %s not opened, errno:%s\n",
+ 			   path, strerror(errno));
+diff --git a/samba-4.6.6/source3/modules/vfs_vxfs.c b/samba-4.6.6/source3/modules/vfs_vxfs.c
+index 3dad9e8..6e0d7ea 100644
+--- a/samba-4.6.6/source3/modules/vfs_vxfs.c
++++ b/samba-4.6.6/source3/modules/vfs_vxfs.c
+@@ -734,11 +734,13 @@ static NTSTATUS vxfs_set_ea_dos_attributes(struct vfs_handle_struct *handle,
+ 					   uint32_t dosmode)
+ {
+ 	NTSTATUS	err;
+-	int		ret = 0;
++	int			ret = 0;
+ 	bool		attrset = false;
++	bool		is_dir = false;
+ 
+ 	DBG_DEBUG("Entered function\n");
+ 
++	is_dir = S_ISDIR(smb_fname->st.st_ex_mode);
+ 	if (!(dosmode & FILE_ATTRIBUTE_READONLY)) {
+ 		ret = vxfs_checkwxattr_path(smb_fname->base_name);
+ 		if (ret == -1) {
+@@ -749,7 +751,7 @@ static NTSTATUS vxfs_set_ea_dos_attributes(struct vfs_handle_struct *handle,
+ 		}
+ 	}
+ 	if (dosmode & FILE_ATTRIBUTE_READONLY) {
+-		ret = vxfs_setwxattr_path(smb_fname->base_name);
++		ret = vxfs_setwxattr_path(smb_fname->base_name, is_dir);
+ 		DBG_DEBUG("ret:%d\n", ret);
+ 		if (ret == -1) {
+ 			if ((errno != EOPNOTSUPP) && (errno != EINVAL)) {
+@@ -762,7 +764,7 @@ static NTSTATUS vxfs_set_ea_dos_attributes(struct vfs_handle_struct *handle,
+ 	err = SMB_VFS_NEXT_SET_DOS_ATTRIBUTES(handle, smb_fname, dosmode);
+ 	if (!NT_STATUS_IS_OK(err)) {
+ 		if (attrset) {
+-			ret = vxfs_clearwxattr_path(smb_fname->base_name);
++			ret = vxfs_clearwxattr_path(smb_fname->base_name, is_dir);
+ 			DBG_DEBUG("ret:%d\n", ret);
+ 			if ((ret == -1) && (errno != ENOENT)) {
+ 					return map_nt_error_from_unix(errno);
+diff --git a/samba-4.6.6/source3/modules/vfs_vxfs.h b/samba-4.6.6/source3/modules/vfs_vxfs.h
+index f438bad..1975590 100644
+--- a/samba-4.6.6/source3/modules/vfs_vxfs.h
++++ b/samba-4.6.6/source3/modules/vfs_vxfs.h
+@@ -31,10 +31,10 @@ int vxfs_removexattr_fd(int, const char *);
+ int vxfs_listxattr_path(const char *, char *, size_t);
+ int vxfs_listxattr_fd(int, char *, size_t);
+ 
+-int vxfs_setwxattr_path(const char *);
++int vxfs_setwxattr_path(const char *, bool);
+ int vxfs_setwxattr_fd(int);
+ 
+-int vxfs_clearwxattr_path(const char *);
++int vxfs_clearwxattr_path(const char *, bool);
+ int vxfs_clearwxattr_fd(int);
+ 
+ int vxfs_checkwxattr_path(const char *);
